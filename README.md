@@ -1,8 +1,14 @@
 # Taller Vagrant + Ansible: Sistema de Exámenes Médicos
+🆕 **Ahora Compatible con Windows + VirtualBox**
 
 ## 📋 Descripción del Proyecto
 
 Este taller demuestra el poder de Vagrant + Ansible creando una infraestructura completa para desplegar automáticamente tu Sistema de Exámenes Médicos (CakePHP 5 + PostgreSQL) en múltiples máquinas virtuales con orquestación completa.
+
+### 🔧 Compatibilidad Multiplataforma
+- ✅ **Windows 10/11** + VirtualBox (configuración actual)
+- ✅ **macOS** (Intel/M1/M2) + QEMU
+- ✅ **Linux** + VirtualBox/QEMU
 
 ### Objetivos del Taller
 - Demostrar aprovisionamiento automático con Vagrant

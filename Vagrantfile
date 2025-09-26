@@ -3,21 +3,29 @@
 
 # Taller Vagrant + Ansible: Sistema de Exámenes Médicos
 # Arquitectura Multi-VM con aprovisionamiento automatizado
+# Configurado para Windows + VirtualBox
 
 VAGRANTFILE_API_VERSION = "2"
 
 Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
-  # Box ARM64 compatible con Mac M2
-  config.vm.box = "perk/ubuntu-2204-arm64"
+  # Box x86_64 compatible con VirtualBox en Windows
+  config.vm.box = "ubuntu/jammy64"
   config.vm.box_check_update = false
   
-  # Plugin requerido para QEMU en Mac M2
-  config.vm.provider "qemu" do |qe|
-    qe.arch = "aarch64"
-    qe.machine = "virt,accel=hvf,highmem=off"
-    qe.cpu = "cortex-a72"
-    qe.net_device = "virtio-net-pci"
+  # Configuración global para VirtualBox
+  config.vm.provider "virtualbox" do |vb|
+    # Habilitar GUI si es necesario (descomentrar la siguiente línea)
+    # vb.gui = true
+    
+    # Configuraciones de red y sistema
+    vb.customize ["modifyvm", :id, "--natdnshostresolver1", "on"]
+    vb.customize ["modifyvm", :id, "--natdnsproxy1", "on"]
+    vb.customize ["modifyvm", :id, "--ioapic", "on"]
   end
+  
+  # Configuración de SSH para Windows
+  config.ssh.forward_agent = true
+  config.ssh.insert_key = false
 
   # ===========================================
   # LOAD BALANCER - Nginx Proxy Reverso
@@ -28,9 +36,10 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     lb.vm.network "forwarded_port", guest: 22, host: 50021, auto_correct: true
     lb.vm.network "forwarded_port", guest: 80, host: 8080
     
-    lb.vm.provider "qemu" do |qe|
-      qe.memory = "512"
-      qe.smp = "1"
+    lb.vm.provider "virtualbox" do |vb|
+      vb.name = "examenes-lb"
+      vb.memory = 512
+      vb.cpus = 1
     end
     
     # Provision con Ansible
@@ -49,15 +58,19 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     web.vm.network "private_network", ip: "192.168.56.20"
     web.vm.network "forwarded_port", guest: 22, host: 50023, auto_correct: true
     
-    web.vm.provider "qemu" do |qe|
-      qe.memory = "2048"
-      qe.smp = "2"
+    web.vm.provider "virtualbox" do |vb|
+      vb.name = "examenes-web"
+      vb.memory = 2048
+      vb.cpus = 2
     end
     
     # Sincronización del código fuente del proyecto
-    web.vm.synced_folder "/Users/andreidiazrosario/Documents/School/TecSoft/examenes_sistema", "/var/www/examenes_sistema", 
-      type: "rsync",
-      rsync__exclude: [".git/", "tmp/", "logs/", "vendor/"]
+    # IMPORTANTE: Cambiar esta ruta por la ruta de tu proyecto en Windows
+    # Ejemplo: "C:/Users/TuUsuario/Documents/examenes_sistema"
+    web.vm.synced_folder "./app", "/var/www/examenes_sistema", 
+      create: true,
+      type: "virtualbox",
+      owner: "www-data", group: "www-data"
     
     web.vm.provision "ansible" do |ansible|
       ansible.playbook = "ansible/web_server.yml"
@@ -80,9 +93,10 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     db.vm.network "forwarded_port", guest: 22, host: 50022, auto_correct: true
     db.vm.network "forwarded_port", guest: 5432, host: 5433
     
-    db.vm.provider "qemu" do |qe|
-      qe.memory = "1536"
-      qe.smp = "2"
+    db.vm.provider "virtualbox" do |vb|
+      vb.name = "examenes-db"
+      vb.memory = 1536
+      vb.cpus = 2
     end
     
     db.vm.provision "ansible" do |ansible|
@@ -108,9 +122,10 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     mon.vm.network "forwarded_port", guest: 3000, host: 3000  # Grafana
     mon.vm.network "forwarded_port", guest: 9090, host: 9090  # Prometheus
     
-    mon.vm.provider "qemu" do |qe|
-      qe.memory = "1024"
-      qe.smp = "2"
+    mon.vm.provider "virtualbox" do |vb|
+      vb.name = "examenes-monitoring"
+      vb.memory = 1024
+      vb.cpus = 2
     end
     
     mon.vm.provision "ansible" do |ansible|
@@ -128,9 +143,10 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     orch.vm.network "private_network", ip: "192.168.56.50"
     orch.vm.network "forwarded_port", guest: 22, host: 50025, auto_correct: true
     
-    orch.vm.provider "qemu" do |qe|
-      qe.memory = "512"
-      qe.smp = "1"
+    orch.vm.provider "virtualbox" do |vb|
+      vb.name = "examenes-orchestrator"
+      vb.memory = 512
+      vb.cpus = 1
     end
     
     # Ejecutar playbook principal después de que todas las VMs estén listas
