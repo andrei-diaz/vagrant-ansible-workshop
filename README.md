@@ -76,11 +76,13 @@ ansible --version
 
 ##  Inicio Rápido
 
-### 1. Clonar el Proyecto de Exámenes
-```bash
-# El código fuente ya está en:
-# /Users/andreidiazrosario/Documents/School/TecSoft/examenes_sistema
-```
+### 1. Aplicación Integrada 🚀
+✅ **¡No necesitas clonar nada manualmente!**
+
+El Vagrantfile ahora clona automáticamente tu aplicación desde GitHub:
+- **Repo:** `https://github.com/andrei-diaz/examenes_sistema.git`
+- **Ubicación:** `/var/www/examenes_sistema` en la VM del webserver
+- **Permisos:** Configurados automáticamente
 
 ### 2. Iniciar la Infraestructura Completa
 ```bash

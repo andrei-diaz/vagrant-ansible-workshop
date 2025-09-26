@@ -64,13 +64,23 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
       vb.cpus = 2
     end
     
-    # Sincronización del código fuente del proyecto
-    # IMPORTANTE: Cambiar esta ruta por la ruta de tu proyecto en Windows
-    # Ejemplo: "C:/Users/TuUsuario/Documents/examenes_sistema"
-    web.vm.synced_folder "./app", "/var/www/examenes_sistema", 
-      create: true,
-      type: "virtualbox",
-      owner: "www-data", group: "www-data"
+    # Clonado automático del código fuente desde GitHub
+    web.vm.provision "shell", inline: <<-SHELL
+      # Instalar Git si no está disponible
+      sudo apt-get update
+      sudo apt-get install -y git
+      
+      # Crear directorio y clonar el repositorio
+      sudo mkdir -p /var/www
+      sudo rm -rf /var/www/examenes_sistema
+      sudo git clone https://github.com/andrei-diaz/examenes_sistema.git /var/www/examenes_sistema
+      
+      # Establecer permisos correctos
+      sudo chown -R www-data:www-data /var/www/examenes_sistema
+      sudo chmod -R 755 /var/www/examenes_sistema
+      
+      echo "✅ Aplicación clonada desde GitHub exitosamente"
+    SHELL
     
     web.vm.provision "ansible" do |ansible|
       ansible.playbook = "ansible/web_server.yml"

@@ -37,16 +37,17 @@ VBoxManage --version
 **Características del nuevo Vagrantfile:**
 - ✅ Usa `ubuntu/jammy64` (x86_64) compatible con VirtualBox
 - ✅ Configuración optimizada de VirtualBox
-- ✅ Carpeta `./app/` para sincronizar tu aplicación
+- ✅ Clonado automático desde GitHub (ya no necesitas carpetas locales)
 - ✅ Todos los providers cambiados de QEMU a VirtualBox
 - ✅ Configuración de SSH para Windows
 
 **📂 Para tu aplicación:**
-1. Coloca tu código PHP/CakePHP en la carpeta `app/`
-2. O modifica la línea 70 del Vagrantfile con tu ruta:
-   ```ruby
-   web.vm.synced_folder "C:/Users/TuUsuario/Documents/tu_proyecto", "/var/www/examenes_sistema"
-   ```
+✅ **¡Ya no necesitas hacer nada!** El Vagrantfile ahora clona automáticamente tu aplicación desde GitHub:
+- **Repositorio:** `https://github.com/andrei-diaz/examenes_sistema.git`
+- **Ubicación en la VM:** `/var/www/examenes_sistema`
+- **Permisos:** Configurados automáticamente para `www-data`
+
+📝 Si quieres usar otro repositorio, cambia la URL en la línea 76 del Vagrantfile.
 
 ### Paso 1.3: Verificar la configuración
 
