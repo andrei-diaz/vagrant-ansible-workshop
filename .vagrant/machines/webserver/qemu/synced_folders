@@ -1,1 +1,0 @@
-{"rsync":{"/var/www/examenes_sistema":{"type":"rsync","rsync__exclude":[".git/","tmp/","logs/","vendor/"],"guestpath":"/var/www/examenes_sistema","hostpath":"/Users/andreidiazrosario/Documents/School/TecSoft/examenes_sistema","disabled":false,"__vagrantfile":true,"exclude":[".git/","tmp/","logs/","vendor/"],"owner":"vagrant","group":"vagrant"}}}
