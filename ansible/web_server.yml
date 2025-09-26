@@ -1,0 +1,319 @@
+---
+# Web Server - Nginx + PHP 8.3 + CakePHP 5
+# Taller Vagrant + Ansible
+
+- name: "🌐 WEB SERVER: Configuración PHP + Nginx + CakePHP"
+  hosts: webservers
+  become: yes
+  vars:
+    php_version: "8.3"
+    app_name: "examenes_sistema"
+    app_path: "/var/www/{{ app_name }}"
+    nginx_user: "www-data"
+    
+  tasks:
+    # ===================================
+    # INSTALACIÓN DE PHP 8.3
+    # ===================================
+    - name: Agregar repositorio de PHP
+      apt_repository:
+        repo: "ppa:ondrej/php"
+        state: present
+        update_cache: yes
+
+    - name: Instalar PHP {{ php_version }} y extensiones
+      apt:
+        name:
+          - "php{{ php_version }}"
+          - "php{{ php_version }}-fpm"
+          - "php{{ php_version }}-cli"
+          - "php{{ php_version }}-common"
+          - "php{{ php_version }}-mysql"
+          - "php{{ php_version }}-pgsql"
+          - "php{{ php_version }}-curl"
+          - "php{{ php_version }}-mbstring"
+          - "php{{ php_version }}-xml"
+          - "php{{ php_version }}-zip"
+          - "php{{ php_version }}-gd"
+          - "php{{ php_version }}-intl"
+          - "php{{ php_version }}-bcmath"
+          - composer
+        state: present
+
+    # ===================================
+    # INSTALACIÓN DE NGINX
+    # ===================================
+    - name: Instalar Nginx
+      apt:
+        name: nginx
+        state: present
+
+    - name: Iniciar y habilitar Nginx
+      systemd:
+        name: nginx
+        state: started
+        enabled: yes
+
+    - name: Iniciar y habilitar PHP-FPM
+      systemd:
+        name: "php{{ php_version }}-fpm"
+        state: started
+        enabled: yes
+
+    # ===================================
+    # CONFIGURACIÓN DE LA APLICACIÓN
+    # ===================================
+    - name: Crear directorio de la aplicación
+      file:
+        path: "{{ app_path }}"
+        state: directory
+        owner: "{{ nginx_user }}"
+        group: "{{ nginx_user }}"
+        mode: '0755'
+
+    - name: Crear directorios necesarios para CakePHP
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ nginx_user }}"
+        group: "{{ nginx_user }}"
+        mode: '0775'
+      loop:
+        - "{{ app_path }}/tmp"
+        - "{{ app_path }}/tmp/cache"
+        - "{{ app_path }}/tmp/cache/models"
+        - "{{ app_path }}/tmp/cache/persistent"
+        - "{{ app_path }}/tmp/cache/views"
+        - "{{ app_path }}/tmp/sessions"
+        - "{{ app_path }}/logs"
+
+    # ===================================
+    # CONFIGURACIÓN DE NGINX PARA CAKEPHP
+    # ===================================
+    - name: Configurar sitio Nginx para CakePHP
+      copy:
+        dest: /etc/nginx/sites-available/{{ app_name }}
+        content: |
+          server {
+              listen 80;
+              server_name {{ app_name }}.local localhost;
+              
+              root {{ app_path }}/webroot;
+              index index.php index.html;
+              
+              # Logs específicos para la aplicación
+              access_log /var/log/nginx/{{ app_name }}_access.log;
+              error_log /var/log/nginx/{{ app_name }}_error.log;
+              
+              # Configuración específica para CakePHP
+              location / {
+                  try_files $uri $uri/ /index.php?$args;
+              }
+              
+              # Procesar archivos PHP
+              location ~ \.php$ {
+                  try_files $uri =404;
+                  fastcgi_pass unix:/run/php/php{{ php_version }}-fpm.sock;
+                  fastcgi_index index.php;
+                  fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+                  include fastcgi_params;
+                  
+                  # Headers de seguridad
+                  fastcgi_param HTTP_X_FORWARDED_PROTO $scheme;
+                  fastcgi_param HTTP_X_FORWARDED_FOR $proxy_add_x_forwarded_for;
+                  fastcgi_param HTTP_X_FORWARDED_HOST $host;
+              }
+              
+              # Denegar acceso a archivos sensibles
+              location ~ /\.(ht|git) {
+                  deny all;
+              }
+              
+              # Optimización para archivos estáticos
+              location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
+                  expires 1y;
+                  add_header Cache-Control "public, immutable";
+                  try_files $uri =404;
+              }
+              
+              # Aumentar timeout para procesos largos
+              fastcgi_read_timeout 300;
+              proxy_read_timeout 300;
+          }
+      notify: restart nginx
+
+    - name: Habilitar sitio de CakePHP
+      file:
+        src: /etc/nginx/sites-available/{{ app_name }}
+        dest: /etc/nginx/sites-enabled/{{ app_name }}
+        state: link
+      notify: restart nginx
+
+    - name: Deshabilitar sitio default de Nginx
+      file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      notify: restart nginx
+
+    # ===================================
+    # CONFIGURACIÓN DE PHP
+    # ===================================
+    - name: Configurar PHP para CakePHP
+      lineinfile:
+        path: "/etc/php/{{ php_version }}/fpm/php.ini"
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+        backup: yes
+      loop:
+        - regexp: '^;?date.timezone'
+          line: 'date.timezone = America/Mexico_City'
+        - regexp: '^;?memory_limit'
+          line: 'memory_limit = 256M'
+        - regexp: '^;?upload_max_filesize'
+          line: 'upload_max_filesize = 32M'
+        - regexp: '^;?post_max_size'
+          line: 'post_max_size = 32M'
+        - regexp: '^;?max_execution_time'
+          line: 'max_execution_time = 300'
+      notify: restart php-fpm
+
+    # ===================================
+    # CONFIGURACIÓN DE BASE DE DATOS PARA CAKEPHP
+    # ===================================
+    - name: Crear archivo de configuración de base de datos
+      copy:
+        dest: "{{ app_path }}/config/app_local.php"
+        owner: "{{ nginx_user }}"
+        group: "{{ nginx_user }}"
+        mode: '0644'
+        content: |
+          <?php
+          return [
+              'debug' => true,
+              'Security' => [
+                  'salt' => env('SECURITY_SALT', '{{ ansible_date_time.epoch }}{{ inventory_hostname }}'),
+              ],
+              'Datasources' => [
+                  'default' => [
+                      'className' => 'Cake\Database\Connection',
+                      'driver' => 'Cake\Database\Driver\Postgres',
+                      'persistent' => false,
+                      'host' => '192.168.56.30',
+                      'port' => 5432,
+                      'username' => 'examenes_user',
+                      'password' => 'examenes_password_123',
+                      'database' => 'examenes_db',
+                      'encoding' => 'utf8',
+                      'timezone' => 'UTC',
+                      'flags' => [],
+                      'cacheMetadata' => true,
+                      'log' => true,
+                      'quoteIdentifiers' => true,
+                  ],
+                  'test' => [
+                      'className' => 'Cake\Database\Connection',
+                      'driver' => 'Cake\Database\Driver\Postgres',
+                      'persistent' => false,
+                      'host' => '192.168.56.30',
+                      'port' => 5432,
+                      'username' => 'examenes_user',
+                      'password' => 'examenes_password_123',
+                      'database' => 'examenes_db_test',
+                      'encoding' => 'utf8',
+                      'timezone' => 'UTC',
+                  ],
+              ],
+              'EmailTransport' => [
+                  'default' => [
+                      'className' => 'Cake\Mailer\Transport\MailTransport',
+                  ],
+              ],
+              'Email' => [
+                  'default' => [
+                      'transport' => 'default',
+                      'from' => 'noreply@examenes.local',
+                  ],
+              ],
+          ];
+
+    # ===================================
+    # CONFIGURACIÓN DE LOGS Y PERMISOS
+    # ===================================
+    - name: Configurar logrotate para la aplicación
+      copy:
+        dest: /etc/logrotate.d/{{ app_name }}
+        content: |
+          {{ app_path }}/logs/*.log {
+              daily
+              missingok
+              rotate 52
+              compress
+              delaycompress
+              notifempty
+              create 0644 {{ nginx_user }} {{ nginx_user }}
+              postrotate
+                  systemctl reload php{{ php_version }}-fpm
+              endscript
+          }
+
+    - name: Crear script de verificación de salud
+      copy:
+        dest: /usr/local/bin/check_{{ app_name }}
+        mode: '0755'
+        content: |
+          #!/bin/bash
+          # Script de verificación de salud para {{ app_name }}
+          
+          echo "=== Verificación de {{ app_name }} ==="
+          echo "Fecha: $(date)"
+          echo
+          
+          # Verificar servicios
+          echo "📋 Estado de servicios:"
+          systemctl is-active nginx && echo "✅ Nginx: OK" || echo "❌ Nginx: ERROR"
+          systemctl is-active php{{ php_version }}-fpm && echo "✅ PHP-FPM: OK" || echo "❌ PHP-FPM: ERROR"
+          echo
+          
+          # Verificar conectividad a base de datos (omitido en macOS + qemu)
+          echo "🐘 Conectividad a PostgreSQL: Omitida en macOS + qemu (sin red privada)"
+          echo
+          
+          # Verificar permisos
+          echo "📁 Permisos de directorios:"
+          [ -w "{{ app_path }}/tmp" ] && echo "✅ tmp/: OK" || echo "❌ tmp/: ERROR"
+          [ -w "{{ app_path }}/logs" ] && echo "✅ logs/: OK" || echo "❌ logs/: ERROR"
+          echo
+          
+          # Verificar aplicación web
+          echo "🌐 Respuesta HTTP:"
+          curl -s -o /dev/null -w "%{http_code}" http://localhost/ | grep -q "200\|302" && echo "✅ HTTP: OK" || echo "❌ HTTP: ERROR"
+          echo
+          echo "=== Fin de verificación ==="
+
+    - name: Mostrar información del servidor web
+      debug:
+        msg: |
+          ==========================================
+          🌐 SERVIDOR WEB CONFIGURADO
+          ==========================================
+          🐘 PHP Version: {{ php_version }}
+          📁 App Path: {{ app_path }}
+          🌐 Acceso desde macOS vía Load Balancer: http://localhost:8080
+          📊 Verificación: /usr/local/bin/check_{{ app_name }}
+          ==========================================
+          Archivos de configuración:
+          - Nginx: /etc/nginx/sites-available/{{ app_name }}
+          - PHP: /etc/php/{{ php_version }}/fpm/php.ini
+          - App: {{ app_path }}/config/app_local.php
+          ==========================================
+
+  handlers:
+    - name: restart nginx
+      systemd:
+        name: nginx
+        state: restarted
+
+    - name: restart php-fpm
+      systemd:
+        name: "php{{ php_version }}-fpm"
+        state: restarted

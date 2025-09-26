@@ -1,0 +1,181 @@
+---
+# Variables Globales - Taller Vagrant + Ansible
+# Sistema de Exámenes Médicos
+
+# =====================================
+# CONFIGURACIÓN DEL PROYECTO
+# =====================================
+project_name: "examenes_sistema"
+app_domain: "examenes.local"
+app_environment: "development"
+
+# =====================================
+# CONFIGURACIÓN DE INFRAESTRUCTURA
+# =====================================
+network:
+  subnet: "192.168.56.0/24"
+  loadbalancer_ip: "192.168.56.10"
+  webserver_ip: "192.168.56.20" 
+  database_ip: "192.168.56.30"
+  monitoring_ip: "192.168.56.40"
+  orchestrator_ip: "192.168.56.50"
+
+# =====================================
+# CONFIGURACIÓN DE BASE DE DATOS
+# =====================================
+database:
+  type: "postgresql"
+  version: "15"
+  name: "examenes_db"
+  user: "examenes_user"
+  password: "examenes_password_123"
+  host: "{{ network.database_ip }}"
+  port: 5432
+  
+# =====================================
+# CONFIGURACIÓN DE PHP/WEB
+# =====================================
+php:
+  version: "8.3"
+  memory_limit: "256M"
+  upload_max_filesize: "32M"
+  post_max_size: "32M"
+  max_execution_time: 300
+  timezone: "America/Mexico_City"
+
+web_server:
+  user: "www-data"
+  group: "www-data"
+  document_root: "/var/www/{{ project_name }}/webroot"
+  app_path: "/var/www/{{ project_name }}"
+
+# =====================================
+# CONFIGURACIÓN DE MONITOREO
+# =====================================
+monitoring:
+  prometheus:
+    port: 9090
+    retention: "30d"
+    scrape_interval: "15s"
+  
+  grafana:
+    port: 3000
+    admin_user: "admin"
+    admin_password: "admin"
+    
+  node_exporter:
+    port: 9100
+
+# =====================================
+# CONFIGURACIÓN DE LOAD BALANCER
+# =====================================
+load_balancer:
+  backend_servers:
+    - "{{ network.webserver_ip }}:80"
+  health_check_interval: 30
+  max_fails: 3
+  fail_timeout: "30s"
+
+# =====================================
+# CONFIGURACIÓN DE SEGURIDAD
+# =====================================
+security:
+  # Clave de seguridad para CakePHP (se genera automáticamente)
+  salt: "{{ ansible_date_time.epoch }}{{ inventory_hostname }}"
+  
+  # Usuarios del sistema
+  admin_user: "admin@examenes.com"
+  admin_password: "admin123"
+
+# =====================================
+# CONFIGURACIÓN DE LOGS
+# =====================================
+logging:
+  level: "info"
+  retention_days: 30
+  log_directory: "/var/log/{{ project_name }}"
+
+# =====================================
+# CONFIGURACIÓN DE PERFORMANCE
+# =====================================
+performance:
+  php_fpm:
+    pm: "dynamic"
+    pm_max_children: 50
+    pm_start_servers: 5
+    pm_min_spare_servers: 5
+    pm_max_spare_servers: 35
+    
+  nginx:
+    worker_processes: "auto"
+    worker_connections: 1024
+    keepalive_timeout: 65
+    client_max_body_size: "32M"
+
+# =====================================
+# CONFIGURACIÓN DE BACKUP
+# =====================================
+backup:
+  enabled: true
+  schedule: "0 2 * * *"  # Diario a las 2 AM
+  retention_days: 7
+  directory: "/var/backups"
+
+# =====================================
+# DATOS DE PRUEBA
+# =====================================
+sample_data:
+  users:
+    - email: "admin@examenes.com"
+      role: "administrador"
+      password: "admin123"
+    - email: "profesor@examenes.com"
+      role: "profesor"  
+      password: "profesor123"
+    - email: "estudiante@examenes.com"
+      role: "estudiante"
+      password: "estudiante123"
+
+  especialidades:
+    - "Medicina Interna"
+    - "Cirugía General"
+    - "Pediatría"
+    - "Ginecología y Obstetricia"
+
+  subespecialidades:
+    "Medicina Interna":
+      - "Cardiología"
+      - "Endocrinología"
+      - "Gastroenterología"
+      - "Neumología"
+    "Cirugía General":
+      - "Cirugía Laparoscópica"
+      - "Trauma y Urgencias"
+      - "Cirugía Oncológica"
+    "Pediatría":
+      - "Neonatología"
+      - "Pediatría General"
+      - "Infectología Pediátrica"
+    "Ginecología y Obstetricia":
+      - "Oncología Ginecológica"
+      - "Medicina Materno-Fetal"
+      - "Ginecología General"
+
+# =====================================
+# CONFIGURACIÓN DE DESARROLLO
+# =====================================
+development:
+  debug: true
+  error_reporting: "E_ALL"
+  display_errors: true
+  xdebug_enabled: false
+
+# =====================================
+# CONFIGURACIÓN DE ANSIBLE
+# =====================================
+ansible:
+  # Configuraciones específicas para el taller
+  timeout: 300
+  gathering: "smart"
+  host_key_checking: false
+  pipelining: true

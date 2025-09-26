@@ -1,0 +1,30 @@
+# Inventario de Hosts - Sistema de Exámenes Médicos
+# Taller Vagrant + Ansible
+
+[loadbalancer]
+examenes-lb ansible_host=127.0.0.1 ansible_port=50022 ansible_user=vagrant
+
+[webservers]
+examenes-web ansible_host=127.0.0.1 ansible_port=50022 ansible_user=vagrant
+
+[database]
+examenes-db ansible_host=127.0.0.1 ansible_port=50022 ansible_user=vagrant
+
+[monitoring]
+examenes-monitoring ansible_host=127.0.0.1 ansible_port=50022 ansible_user=vagrant
+
+[orchestrator]
+examenes-orchestrator ansible_host=127.0.0.1 ansible_port=50022 ansible_user=vagrant
+
+[examenes_infrastructure:children]
+loadbalancer
+webservers
+database
+monitoring
+
+[all:vars]
+ansible_ssh_private_key_file=~/.vagrant.d/insecure_private_key
+ansible_ssh_common_args='-o StrictHostKeyChecking=no'
+project_name=examenes_sistema
+app_domain=examenes.local
+deploy_user=vagrant

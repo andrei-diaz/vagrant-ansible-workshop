@@ -1,0 +1,198 @@
+---
+# Database Server - PostgreSQL + pgAdmin
+# Taller Vagrant + Ansible
+
+- name: "🐘 POSTGRESQL: Configuración del servidor de base de datos"
+  hosts: database
+  become: yes
+  vars:
+    postgres_version: "15"
+    db_name: "examenes_db"
+    db_user: "examenes_user"
+    db_password: "examenes_password_123"
+    
+  tasks:
+    - name: Instalar repositorio oficial de PostgreSQL
+      apt:
+        deb: "https://ftp.postgresql.org/pub/pgdg/repos/apt/pool/main/p/postgresql-common/postgresql-common_248.pgdg22.04+1_all.deb"
+        state: present
+      ignore_errors: yes
+
+    - name: Agregar clave GPG de PostgreSQL
+      apt_key:
+        url: https://www.postgresql.org/media/keys/ACCC4CF8.asc
+        state: present
+
+    - name: Agregar repositorio de PostgreSQL
+      apt_repository:
+        repo: "deb http://apt.postgresql.org/pub/repos/apt/ {{ ansible_distribution_release }}-pgdg main"
+        state: present
+
+    - name: Actualizar cache de paquetes
+      apt:
+        update_cache: yes
+
+    - name: Instalar PostgreSQL y dependencias
+      apt:
+        name:
+          - "postgresql-{{ postgres_version }}"
+          - "postgresql-client-{{ postgres_version }}"
+          - postgresql-contrib
+          - python3-psycopg2
+          - python3-pip
+        state: present
+
+    - name: Instalar pip packages para PostgreSQL
+      pip:
+        name:
+          - psycopg2-binary
+        state: present
+
+    - name: Iniciar y habilitar PostgreSQL
+      systemd:
+        name: postgresql
+        state: started
+        enabled: yes
+
+    - name: Configurar PostgreSQL para escuchar en todas las interfaces
+      lineinfile:
+        path: "/etc/postgresql/{{ postgres_version }}/main/postgresql.conf"
+        regexp: "^#?listen_addresses"
+        line: "listen_addresses = '*'"
+        backup: yes
+      notify: restart postgresql
+
+    - name: Configurar autenticación para conexiones remotas
+      lineinfile:
+        path: "/etc/postgresql/{{ postgres_version }}/main/pg_hba.conf"
+        line: "host    all             all             192.168.56.0/24         md5"
+        backup: yes
+      notify: restart postgresql
+
+    - name: Crear base de datos para el sistema de exámenes
+      postgresql_db:
+        name: "{{ db_name }}"
+        encoding: UTF8
+        lc_collate: es_MX.UTF-8
+        lc_ctype: es_MX.UTF-8
+        template: template0
+      become_user: postgres
+
+    - name: Crear usuario de base de datos
+      postgresql_user:
+        name: "{{ db_user }}"
+        password: "{{ db_password }}"
+        db: "{{ db_name }}"
+        priv: ALL
+        state: present
+      become_user: postgres
+
+    - name: Otorgar privilegios de superusuario al usuario de la aplicación
+      postgresql_user:
+        name: "{{ db_user }}"
+        role_attr_flags: CREATEDB,CREATEROLE
+        state: present
+      become_user: postgres
+
+    - name: Crear script SQL de inicialización
+      copy:
+        dest: /tmp/init_examenes_db.sql
+        content: |
+          -- Script de inicialización para Sistema de Exámenes Médicos
+          -- Base de datos: {{ db_name }}
+          
+          -- Crear extensiones útiles
+          CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+          CREATE EXTENSION IF NOT EXISTS "pg_trgm";
+          
+          -- Crear tabla de usuarios (estructura CakePHP)
+          CREATE TABLE IF NOT EXISTS users (
+              id SERIAL PRIMARY KEY,
+              email VARCHAR(255) NOT NULL UNIQUE,
+              password VARCHAR(255) NOT NULL,
+              role VARCHAR(50) DEFAULT 'estudiante',
+              active BOOLEAN DEFAULT true,
+              created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          );
+          
+          -- Crear tabla de reactivos (preguntas del examen)
+          CREATE TABLE IF NOT EXISTS reactivos (
+              id SERIAL PRIMARY KEY,
+              pregunta TEXT NOT NULL,
+              respuesta_a VARCHAR(500) NOT NULL,
+              respuesta_b VARCHAR(500) NOT NULL,
+              respuesta_c VARCHAR(500) NOT NULL,
+              respuesta_correcta CHAR(1) NOT NULL CHECK (respuesta_correcta IN ('a', 'b', 'c')),
+              retroalimentacion TEXT,
+              dificultad VARCHAR(20) DEFAULT 'medio' CHECK (dificultad IN ('facil', 'medio', 'dificil')),
+              area_especialidad VARCHAR(100),
+              subespecialidad VARCHAR(100),
+              user_id INTEGER REFERENCES users(id),
+              created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          );
+          
+          -- Crear tabla de exámenes
+          CREATE TABLE IF NOT EXISTS examenes (
+              id SERIAL PRIMARY KEY,
+              nombre VARCHAR(255) NOT NULL,
+              descripcion TEXT,
+              tiempo_limite INTEGER DEFAULT 120, -- minutos
+              numero_preguntas INTEGER DEFAULT 50,
+              activo BOOLEAN DEFAULT true,
+              created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          );
+          
+          -- Insertar usuario administrador por defecto
+          INSERT INTO users (email, password, role, active) VALUES 
+          ('admin@examenes.com', crypt('admin123', gen_salt('bf')), 'administrador', true)
+          ON CONFLICT (email) DO NOTHING;
+          
+          -- Insertar datos de prueba para reactivos
+          INSERT INTO reactivos (pregunta, respuesta_a, respuesta_b, respuesta_c, respuesta_correcta, area_especialidad, subespecialidad, user_id) VALUES
+          ('¿Cuál es la dosis inicial recomendada de aspirina para prevención cardiovascular?', '75-100 mg/día', '200-300 mg/día', '500-1000 mg/día', 'a', 'Medicina Interna', 'Cardiología', 1),
+          ('¿Cuál es el signo patognomónico de apendicitis aguda?', 'Signo de McBurney', 'Signo de Murphy', 'Signo de Rovsing', 'a', 'Cirugía', 'Cirugía General', 1),
+          ('¿A qué edad se recomienda iniciar el tamizaje de cáncer cervicouterino?', '18 años', '21 años', '25 años', 'b', 'Ginecología', 'Oncología Ginecológica', 1)
+          ON CONFLICT DO NOTHING;
+
+    - name: Ejecutar script de inicialización
+      postgresql_query:
+        db: "{{ db_name }}"
+        path_to_script: /tmp/init_examenes_db.sql
+      become_user: postgres
+
+    - name: Configurar backup automático
+      cron:
+        name: "Backup diario base de datos examenes"
+        minute: "0"
+        hour: "2"
+        job: "pg_dump {{ db_name }} | gzip > /var/backups/examenes_$(date +\\%Y\\%m\\%d).sql.gz"
+        user: postgres
+
+    - name: Crear directorio de backups
+      file:
+        path: /var/backups
+        state: directory
+        owner: postgres
+        group: postgres
+        mode: '0755'
+
+    - name: Mostrar información de la base de datos
+      debug:
+        msg: |
+          ==========================================
+          🐘 POSTGRESQL CONFIGURADO
+          ==========================================
+          📊 Base de datos: {{ db_name }}
+          👤 Usuario: {{ db_user }}
+          🔌 Puerto: 5432
+          🌐 Acceso: 192.168.56.30:5432
+          ==========================================
+
+  handlers:
+    - name: restart postgresql
+      systemd:
+        name: postgresql
+        state: restarted

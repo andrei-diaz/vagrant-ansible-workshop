@@ -1,0 +1,183 @@
+---
+# Load Balancer - Nginx Proxy Reverso
+# Taller Vagrant + Ansible
+
+- name: "⚖️ LOAD BALANCER: Configuración Nginx Proxy Reverso"
+  hosts: loadbalancer
+  become: yes
+  vars:
+    backend_servers:
+      - "192.168.56.20:80"  # Web server
+      
+  tasks:
+    - name: Instalar Nginx
+      apt:
+        name: nginx
+        state: present
+        update_cache: yes
+
+    - name: Crear configuración del upstream
+      copy:
+        dest: /etc/nginx/conf.d/upstream.conf
+        content: |
+          upstream examenes_backend {
+              # Configuración de servidores backend
+              server 192.168.56.20:80 weight=1 max_fails=3 fail_timeout=30s;
+              
+              # Configuraciones adicionales
+              keepalive 32;
+          }
+      notify: restart nginx
+
+    - name: Configurar sitio del Load Balancer
+      copy:
+        dest: /etc/nginx/sites-available/examenes-lb
+        content: |
+          server {
+              listen 80;
+              server_name examenes.local localhost;
+              
+              # Logs del load balancer
+              access_log /var/log/nginx/lb_access.log;
+              error_log /var/log/nginx/lb_error.log;
+              
+              # Headers para el proxy
+              proxy_set_header Host $host;
+              proxy_set_header X-Real-IP $remote_addr;
+              proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+              proxy_set_header X-Forwarded-Proto $scheme;
+              
+              # Configuración principal del proxy
+              location / {
+                  proxy_pass http://examenes_backend;
+                  
+                  # Timeouts
+                  proxy_connect_timeout 30s;
+                  proxy_send_timeout 300s;
+                  proxy_read_timeout 300s;
+                  
+                  # Buffer configuration
+                  proxy_buffering on;
+                  proxy_buffer_size 4k;
+                  proxy_buffers 8 4k;
+                  
+                  # Health check básico
+                  proxy_next_upstream error timeout invalid_header http_500 http_502 http_503 http_504;
+              }
+              
+              # Endpoint de salud del load balancer
+              location /health {
+                  access_log off;
+                  return 200 "Load Balancer OK\n";
+                  add_header Content-Type text/plain;
+              }
+              
+              # Status page para monitoreo
+              location /status {
+                  access_log off;
+                  return 200 "Load Balancer Status: Active\nBackend: 192.168.56.20:80\nTimestamp: $time_iso8601\n";
+                  add_header Content-Type text/plain;
+              }
+          }
+      notify: restart nginx
+
+    - name: Habilitar sitio del Load Balancer
+      file:
+        src: /etc/nginx/sites-available/examenes-lb
+        dest: /etc/nginx/sites-enabled/examenes-lb
+        state: link
+      notify: restart nginx
+
+    - name: Deshabilitar sitio default
+      file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      notify: restart nginx
+
+    - name: Configurar Nginx principal
+      lineinfile:
+        path: /etc/nginx/nginx.conf
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+        backup: yes
+      loop:
+        - regexp: '^\s*worker_processes'
+          line: '    worker_processes auto;'
+        - regexp: '^\s*worker_connections'
+          line: '        worker_connections 1024;'
+      notify: restart nginx
+
+    - name: Crear script de monitoreo del Load Balancer
+      copy:
+        dest: /usr/local/bin/check_load_balancer
+        mode: '0755'
+        content: |
+          #!/bin/bash
+          # Script de monitoreo del Load Balancer
+          
+          echo "=== Load Balancer Health Check ==="
+          echo "Fecha: $(date)"
+          echo
+          
+          # Verificar servicio Nginx
+          echo "📋 Estado del servicio:"
+          systemctl is-active nginx && echo "✅ Nginx: Activo" || echo "❌ Nginx: Inactivo"
+          echo
+          
+          # Verificar configuración
+          echo "🔧 Configuración:"
+          nginx -t 2>&1 | grep -q "syntax is ok" && echo "✅ Config: OK" || echo "❌ Config: ERROR"
+          echo
+          
+          # Verificar conectividad backend
+          echo "🔗 Backend conectividad:"
+          nc -zv 192.168.56.20 80 2>&1 | grep -q "succeeded" && echo "✅ Backend: OK" || echo "❌ Backend: ERROR"
+          echo
+          
+          # Verificar proxy
+          echo "🌐 Prueba de proxy:"
+          curl -s -o /dev/null -w "%{http_code}" http://localhost/ | grep -q "200\|302" && echo "✅ Proxy: OK" || echo "❌ Proxy: ERROR"
+          echo
+          
+          # Estadísticas básicas
+          echo "📊 Estadísticas:"
+          echo "Conexiones activas: $(netstat -tn | grep :80 | grep ESTABLISHED | wc -l)"
+          echo "Procesos Nginx: $(pgrep -c nginx)"
+          echo
+          echo "=== Fin del health check ==="
+
+    - name: Configurar monitoreo con cron
+      cron:
+        name: "Load Balancer Health Check"
+        minute: "*/5"
+        job: "/usr/local/bin/check_load_balancer >> /var/log/lb_health.log 2>&1"
+
+    - name: Iniciar y habilitar Nginx
+      systemd:
+        name: nginx
+        state: started
+        enabled: yes
+
+    - name: Mostrar información del Load Balancer
+      debug:
+        msg: |
+          ==========================================
+          ⚖️ LOAD BALANCER CONFIGURADO
+          ==========================================
+          🌐 Puerto: 80
+          🎯 Backend: 192.168.56.20:80
+          📊 Health Check: /health
+          📈 Status: /status
+          🔍 Monitoreo: /usr/local/bin/check_load_balancer
+          ==========================================
+          URLs de prueba:
+          • http://192.168.56.10/health
+          • http://192.168.56.10/status
+          • http://localhost:8080 (port forwarding)
+          ==========================================
+
+  handlers:
+    - name: restart nginx
+      systemd:
+        name: nginx
+        state: restarted
