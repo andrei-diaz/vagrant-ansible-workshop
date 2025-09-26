@@ -1,0 +1,23 @@
+# Vagrant files
+.vagrant/
+*.log
+*.box
+*.img
+*.fd
+
+# SSH keys
+*.pem
+*_rsa
+*_rsa.pub
+
+# macOS files
+.DS_Store
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Ansible files
+*.retry
