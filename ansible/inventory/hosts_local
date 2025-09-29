@@ -1,0 +1,21 @@
+# Inventario Local - Sistema de Exámenes Médicos
+# Para uso con ansible_local
+
+[loadbalancer]
+examenes-lb ansible_connection=local
+
+[webservers]
+examenes-web ansible_connection=local
+
+[database]
+examenes-db ansible_connection=local
+
+[examenes_infrastructure:children]
+loadbalancer
+webservers
+database
+
+[all:vars]
+project_name=examenes_sistema
+app_domain=examenes.local
+deploy_user=vagrant

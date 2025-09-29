@@ -49,13 +49,24 @@ find ansible/ -type f
 # Iniciar solo la VM de base de datos
 vagrant up database
 
-# TIEMPO ESTIMADO: 8-12 minutos
+# TIEMPO ESTIMADO: 8-12 minutos (Windows + VirtualBox)
 # QUÉ ESTÁ PASANDO:
-# - Descarga la box ARM64 (primera vez)
+# - Descarga la box Ubuntu 22.04 (primera vez)
 # - Crea la VM con 1.5GB RAM
-# - Instala PostgreSQL 15
+# - Instala PostgreSQL 15 con Ansible
 # - Configura la base de datos
 # - Crea tablas y datos de prueba
+```
+
+#### 🚨 SOLUCIÓN ESPECÍFICA PARA WINDOWS
+Si el comando anterior falla con un error de timeout SSH (común en Windows + VirtualBox):
+
+```powershell
+# Si ves: "Timed out while waiting for the machine to boot"
+# Ejecutar este comando para reiniciar y provisionar:
+vagrant reload database
+
+# Esto solucionará el problema de conexión SSH y ejecutará Ansible automáticamente
 ```
 
 #### 🔍 Verificar que la Base de Datos Funciona

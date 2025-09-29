@@ -180,6 +180,24 @@
     # ===================================
     # CONFIGURACIÓN DE BASE DE DATOS PARA CAKEPHP
     # ===================================
+    # ===================================
+    # INSTALACIÓN DE DEPENDENCIAS COMPOSER
+    # ===================================
+    - name: Instalar dependencias de CakePHP con Composer
+      command: composer install --no-dev --optimize-autoloader
+      args:
+        chdir: "{{ app_path }}"
+      become_user: "{{ nginx_user }}"
+      ignore_errors: yes
+
+    - name: Establecer permisos correctos después de Composer
+      file:
+        path: "{{ app_path }}"
+        owner: "{{ nginx_user }}"
+        group: "{{ nginx_user }}"
+        mode: '0755'
+        recurse: yes
+
     - name: Crear archivo de configuración de base de datos
       copy:
         dest: "{{ app_path }}/config/app_local.php"

@@ -8,7 +8,22 @@
 
 ### Windows + VirtualBox
 
-*Los problemas específicos aparecerán aquí después de las pruebas...*
+*Los problemas específicos del taller aparecerán aquí durante las pruebas...*
+
+#### ℹ️ Nota: Requisitos previos
+
+Antes de comenzar con el taller, asegúrate de tener instalados:
+- VirtualBox 7.0+
+- Vagrant 2.4.0+
+- Git
+
+Puedes verificar con:
+```bash
+vagrant --version
+VBoxManage --version
+```
+
+Si no están instalados, consulta el README.md para instrucciones de instalación.
 
 ---
 

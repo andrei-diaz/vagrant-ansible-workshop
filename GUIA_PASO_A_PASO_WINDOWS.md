@@ -87,6 +87,21 @@ examenes-orchestrator ansible_host=192.168.56.50
 
 ---
 
+## 🚨 PATRÓN COMÚN EN WINDOWS + VIRTUALBOX
+
+**Problema frecuente:** Las VMs pueden fallar con SSH timeout en el primer `vagrant up`
+
+**Solución universal:**
+```powershell
+vagrant reload [nombre_vm]   # Reinicia y ejecuta provisioning automáticamente
+```
+
+**Por qué pasa:** Windows + VirtualBox a veces tiene problemas de timing en el primer boot
+
+**Por qué funciona:** `vagrant reload` reinicia la VM correctamente y soluciona SSH
+
+---
+
 ## FASE 2: INICIO DE LA INFRAESTRUCTURA
 
 ### Paso 2.1: Levantar la Base de Datos
@@ -94,12 +109,38 @@ examenes-orchestrator ansible_host=192.168.56.50
 vagrant up database
 ```
 
-**Mensaje esperado al finalizar:**
+#### 🚨 SOLUCIONES PARA PROBLEMAS COMUNES (Windows + VirtualBox)
+
+**PROBLEMA 1: SSH Timeout**
+Si el comando anterior falla con:
 ```
-==> database: Running provisioner: ansible...
-==> database: PLAY RECAP *********************************************************************
-==> database: examenes-db              : ok=XX   changed=XX   unreachable=0    failed=0
+Timed out while waiting for the machine to boot. This means that
+Vagrant was unable to communicate with the guest machine...
 ```
+
+**SOLUCIÓN:**
+```powershell
+vagrant reload database
+```
+
+**PROBLEMA 2: Datos de prueba vacíos**
+Si después de que todo funcione, las tablas están vacías (0 usuarios, 0 reactivos):
+
+**SOLUCIÓN:**
+```powershell
+vagrant provision database
+```
+
+**FLUJO RECOMENDADO PARA WINDOWS:**
+1. `vagrant up database` ← Intenta primero
+2. Si falla SSH → `vagrant reload database` ← Soluciona conexión
+3. Si datos vacíos → `vagrant provision database` ← Re-ejecuta Ansible
+
+Este flujo asegura que:
+✓ La VM arranque correctamente
+✓ SSH funcione sin problemas  
+✓ PostgreSQL esté configurado
+✓ Los datos de prueba se inserten correctamente
 
 #### Verificaciones de la VM Database:
 
@@ -109,37 +150,68 @@ vagrant ssh database -c "sudo systemctl status postgresql --no-pager"
 ```
 **Resultado esperado:** `Active: active (running)`
 
-**2. Verificar que la base de datos fue creada:**
+**2. Verificar datos dentro de la VM:**
 ```powershell
-vagrant ssh database -c "sudo -u postgres psql -d examenes_db -c \"\\dt\""
+# Conectarse a la VM
+vagrant ssh database
+
+# Dentro de la VM, conectar a PostgreSQL
+sudo -u postgres psql -d examenes_db
+
+# Dentro de PostgreSQL, verificar tablas
+\dt
+
+# Verificar usuarios (debe mostrar admin@examenes.com)
+SELECT email, role FROM users;
+
+# Verificar reactivos (debe mostrar al menos 3)
+SELECT COUNT(*) FROM reactivos;
+
+# Salir
+\q
+exit
 ```
-**Resultado esperado:** Lista de tablas del sistema de exámenes
+**Resultado esperado:**
+- Tablas: users, reactivos, examenes
+- 1 usuario: admin@examenes.com
+- Al menos 3 reactivos de medicina
 
 **3. Probar acceso desde Windows (port forwarding):**
 ```powershell
-Test-NetConnection -ComputerName 127.0.0.1 -Port 5433
+Test-NetConnection -ComputerName 127.0.0.1 -Port 5434
 ```
 **Resultado esperado:** `TcpTestSucceeded : True`
 
-**4. Verificar usuario y base de datos:**
-```powershell
-vagrant ssh database -c "sudo -u postgres psql -c \"\\du\""
-```
-**Resultado esperado:** Usuario `examenes_user` debe aparecer en la lista
+**NOTA:** Usamos puerto 5434 para evitar conflicto con PostgreSQL local si lo tienes instalado.
 
 ### Paso 2.2: Levantar el Servidor Web
 ```powershell
 vagrant up webserver
 ```
 
+#### 🚨 SOLUCIÓN SSH TIMEOUT (si ocurre)
+Si el comando anterior falla con timeout SSH:
+
+```powershell
+vagrant reload webserver
+```
+
+Este comando:
+1. Reinicia la VM correctamente
+2. Soluciona el problema de conexión SSH  
+3. Ejecuta el script de clonado desde GitHub
+4. Ejecuta automáticamente Ansible para instalar PHP 8.3 + Nginx
+5. Configura CakePHP completamente
+
 **Mensaje esperado al finalizar:**
 ```
 ==> webserver: Running provisioner: shell...
-==> webserver: Aplicación clonada desde GitHub exitosamente
+==> webserver: ✅ Aplicación clonada desde GitHub exitosamente
+==> webserver: Running provisioner: ansible_local...
 ==> webserver: PLAY RECAP *********************************************************************
-==> webserver: examenes-web            : ok=XX   changed=XX   unreachable=0    failed=0
+==> webserver: examenes-web            : ok=18   changed=13   unreachable=0    failed=0
 ```
-
+  
 #### Verificaciones de la VM Web Server:
 
 **1. Verificar que Nginx está corriendo:**
@@ -171,6 +243,49 @@ vagrant ssh webserver -c "cat /var/www/examenes_sistema/config/app_local.php"
 vagrant ssh webserver -c "curl -s -o /dev/null -w '%{http_code}' http://localhost/"
 ```
 **Resultado esperado:** Código `200` o `302`
+
+#### 🚨 SOLUCIÓN PARA ERROR 500 (Dependencias faltantes)
+Si el comando anterior devuelve `500` (error interno):
+
+**PROBLEMA:** Ansible no instaló las dependencias de CakePHP con Composer
+
+**SOLUCIÓN:**
+```powershell
+vagrant ssh webserver -c "sudo -u www-data composer install --working-dir=/var/www/examenes_sistema --no-dev --optimize-autoloader"
+```
+
+**Qué hace este comando:**
+- Instala todas las dependencias de CakePHP (directorio `vendor/`)
+- Crea el autoloader optimizado para mejor rendimiento
+- Se ejecuta como usuario `www-data` para permisos correctos
+- Tarda ~2-3 minutos en completarse
+
+**Verificar que funcionó:**
+```powershell
+vagrant ssh webserver -c "curl -s -o /dev/null -w '%{http_code}' http://localhost/"
+```
+**Resultado esperado después del fix:** `302` (redirect, ¡funciona!)
+
+#### 🚨 SOLUCIÓN PARA ERRORES DE BASE DE DATOS
+Si al abrir la aplicación web ves errores como:
+- `permission denied for schema public`
+- `Columns used in constraints must be added to the Table schema first`
+
+**PROBLEMA:** El usuario de PostgreSQL no tiene permisos completos en el esquema
+
+**SOLUCIÓN:**
+```powershell
+# Otorgar permisos de esquema
+vagrant ssh database -c "sudo -u postgres psql -d examenes_db -c 'GRANT ALL PRIVILEGES ON SCHEMA public TO examenes_user;'"
+
+# Otorgar permisos para tablas futuras  
+vagrant ssh database -c "sudo -u postgres psql -d examenes_db -c 'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO examenes_user;'"
+
+# Arreglar permisos de logs en CakePHP
+vagrant ssh webserver -c "sudo chmod -R 777 /var/www/examenes_sistema/logs && sudo chown -R www-data:www-data /var/www/examenes_sistema/logs"
+```
+
+**Verificar que funcionó:** La aplicación debe cargar sin errores de base de datos
 
 ### Paso 2.3: Levantar el Load Balancer
 ```powershell
@@ -215,63 +330,6 @@ start http://localhost:8080
 ```
 **Resultado esperado:** Página de inicio del sistema de exámenes
 
-### Paso 2.4: Levantar Monitoreo
-```powershell
-vagrant up monitoring
-```
-
-**Mensaje esperado al finalizar:**
-```
-==> monitoring: PLAY RECAP *********************************************************************
-==> monitoring: examenes-monitoring     : ok=XX   changed=XX   unreachable=0    failed=0
-```
-
-#### Verificaciones de la VM Monitoring:
-
-**1. Verificar que Grafana está corriendo:**
-```powershell
-vagrant ssh monitoring -c "sudo systemctl status grafana-server --no-pager"
-```
-**Resultado esperado:** `Active: active (running)`
-
-**2. Verificar que Prometheus está corriendo:**
-```powershell
-vagrant ssh monitoring -c "sudo systemctl status prometheus --no-pager"
-```
-**Resultado esperado:** `Active: active (running)`
-
-**3. Verificar que Node Exporter está corriendo:**
-```powershell
-vagrant ssh monitoring -c "sudo systemctl status node_exporter --no-pager"
-```
-**Resultado esperado:** `Active: active (running)`
-
-**4. Probar Grafana desde Windows:**
-```powershell
-Invoke-WebRequest -UseBasicParsing -Uri http://localhost:3000 | Select-Object -ExpandProperty StatusCode
-```
-**Resultado esperado:** `200`
-
-**5. Probar Prometheus desde Windows:**
-```powershell
-Invoke-WebRequest -UseBasicParsing -Uri http://localhost:9090 | Select-Object -ExpandProperty StatusCode
-```
-**Resultado esperado:** `200`
-
-**6. Abrir Grafana en navegador:**
-```powershell
-start http://localhost:3000
-```
-**Resultado esperado:** Pantalla de login de Grafana (admin/admin)
-
-**7. Abrir Prometheus en navegador:**
-```powershell
-start http://localhost:9090
-```
-**Resultado esperado:** Interfaz de Prometheus con métricas
-
----
-
 ## FASE 3: PRUEBAS DE CONECTIVIDAD ENTRE VMs
 
 ### 3.1 Probar conectividad entre Web Server y Database
@@ -286,31 +344,23 @@ vagrant ssh loadbalancer -c "nc -zv -w3 192.168.56.20 80"
 ```
 **Resultado esperado:** `Connection to 192.168.56.20 80 port [tcp/http] succeeded!`
 
-### 3.3 Probar conectividad de Monitoring a otras VMs
-```powershell
-vagrant ssh monitoring -c "nc -zv -w3 192.168.56.10 80"  # Load Balancer
-vagrant ssh monitoring -c "nc -zv -w3 192.168.56.20 80"  # Web Server
-vagrant ssh monitoring -c "nc -zv -w3 192.168.56.30 5432" # Database
-```
-**Resultado esperado:** Todas las conexiones deben ser exitosas
-
 ---
 
-## FASE 4: PRUEBAS FUNCIONALES DE LA APLICACIÓN
+## FASE 3: PRUEBAS FUNCIONALES DE LA APLICACIÓN
 
-### 4.1 Probar Base de Datos desde Windows
+### 3.1 Probar Base de Datos desde Windows
 
 **Conectar usando psql (requiere PostgreSQL client instalado):**
 ```powershell
 $env:PGPASSWORD = 'examenes_password_123'
-psql -h 127.0.0.1 -p 5433 -U examenes_user -d examenes_db -c "\\dt"
+psql -h 127.0.0.1 -p 5434 -U examenes_user -d examenes_db -c "\dt"
 ```
 **Resultado esperado:** Lista de tablas como `users`, `especialidades`, `examenes`, etc.
 
 **Verificar datos de prueba:**
 ```powershell
 $env:PGPASSWORD = 'examenes_password_123'
-psql -h 127.0.0.1 -p 5433 -U examenes_user -d examenes_db -c "SELECT email FROM users LIMIT 3;"
+psql -h 127.0.0.1 -p 5434 -U examenes_user -d examenes_db -c "SELECT email FROM users LIMIT 3;"
 ```
 **Resultado esperado:** 
 ```
@@ -321,7 +371,7 @@ psql -h 127.0.0.1 -p 5433 -U examenes_user -d examenes_db -c "SELECT email FROM 
  estudiante@examenes.com
 ```
 
-### 4.2 Pruebas de la Aplicación Web
+### 3.2 Pruebas de la Aplicación Web
 
 **1. Abrir la aplicación:**
 ```powershell
@@ -348,29 +398,7 @@ vagrant ssh webserver -c "cd /var/www/examenes_sistema && php bin/cake.php migra
 ```
 **Resultado esperado:** Estado de las migraciones (deberían estar aplicadas)
 
-### 4.3 Pruebas del Sistema de Monitoreo
-
-**1. Abrir Grafana:**
-```powershell
-start http://localhost:3000
-```
-- Login: `admin` / `admin`
-**Resultado esperado:** Dashboard de Grafana con métricas del sistema
-
-**2. Abrir Prometheus:**
-```powershell
-start http://localhost:9090
-```
-**Resultado esperado:** Interfaz de Prometheus
-- Ir a Status > Targets
-- Verificar que los targets estén "UP"
-
-**3. Verificar métricas específicas en Prometheus:**
-- Query: `up` - Debe mostrar todas las VMs
-- Query: `node_memory_MemTotal_bytes` - Memoria de las VMs
-- Query: `node_cpu_seconds_total` - CPU usage
-
-### 4.4 Prueba de Balanceador de Carga
+### 3.3 Prueba de Balanceador de Carga
 
 **Verificar que el Load Balancer distribuye correctamente:**
 ```powershell

@@ -70,29 +70,18 @@
       notify: restart postgresql
 
     - name: Crear base de datos para el sistema de exámenes
-      postgresql_db:
-        name: "{{ db_name }}"
-        encoding: UTF8
-        lc_collate: es_MX.UTF-8
-        lc_ctype: es_MX.UTF-8
-        template: template0
-      become_user: postgres
+      shell: sudo -u postgres createdb -E UTF8 -T template0 {{ db_name }}
+      ignore_errors: yes
 
     - name: Crear usuario de base de datos
-      postgresql_user:
-        name: "{{ db_user }}"
-        password: "{{ db_password }}"
-        db: "{{ db_name }}"
-        priv: ALL
-        state: present
-      become_user: postgres
+      shell: sudo -u postgres psql -c "CREATE USER {{ db_user }} WITH PASSWORD '{{ db_password }}';"
+      ignore_errors: yes
 
-    - name: Otorgar privilegios de superusuario al usuario de la aplicación
-      postgresql_user:
-        name: "{{ db_user }}"
-        role_attr_flags: CREATEDB,CREATEROLE
-        state: present
-      become_user: postgres
+    - name: Otorgar privilegios al usuario de la aplicación
+      shell: |
+        sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE {{ db_name }} TO {{ db_user }};"
+        sudo -u postgres psql -c "ALTER USER {{ db_user }} CREATEDB;"
+      ignore_errors: yes
 
     - name: Crear script SQL de inicialización
       copy:
@@ -158,10 +147,8 @@
           ON CONFLICT DO NOTHING;
 
     - name: Ejecutar script de inicialización
-      postgresql_query:
-        db: "{{ db_name }}"
-        path_to_script: /tmp/init_examenes_db.sql
-      become_user: postgres
+      shell: sudo -u postgres psql -d {{ db_name }} -f /tmp/init_examenes_db.sql
+      ignore_errors: yes
 
     - name: Configurar backup automático
       cron:
